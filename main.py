@@ -1,8 +1,12 @@
 from flask import Flask,render_template,redirect,url_for,request,jsonify,session
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func,select
+from datetime import datetime
 from flask_cors import CORS
 import sentry_sdk
+
+from database import display_profit, Total_profit, pro_for_today, display_sum_sales, display_sum_sales_today, display_sales, day_sales, pro_per_day, get_remaining_stock_per_product, insert_sales
+
 
 
 import os
@@ -25,6 +29,9 @@ app =  Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI']= 'postgresql://postgres:0777@localhost/test_api'
 db = SQLAlchemy(app)
 
+
+
+
 class Product(db.Model):
     __tablename__='products'
     id = db.Column(db.Integer,primary_key=True)
@@ -42,13 +49,15 @@ class Sale(db.Model):
     quantity = db.Column(db.Integer,nullable= False)
     created_at = db.Column(db.DateTime,server_default = func.now())
 
+
+
+
 with app.app_context():
     db.create_all()
 
-# CORS(app, resources={r"/product/*": {"origins": "http://127.0.0.1:5500"}})
-# CORS(app, resources={r"/sales/*": {"origins": "http://127.0.0.1:5500"}})
 
 CORS(app, resources={r"/*": {"origins": "http://127.0.0.1:5500"}})
+
 
 @app.route('/product',methods=['GET','POST'])
 def product():
@@ -81,6 +90,7 @@ def product():
         return jsonify({"products": prods}),200
 
 
+
 @app.route('/sales',methods=['GET','POST'])
 def sales():
     if request.method == 'POST':
@@ -100,7 +110,7 @@ def sales():
             sales_data = []
             for sale in sales:
                 sales_data.append({
-                    'product': sale.product.name,
+                    'product': sale.pid,
                     'quantity': sale.quantity,
                     'created_at': sale.created_at
                 })
@@ -109,26 +119,58 @@ def sales():
             return jsonify({'error': str(e)}), 500
 
 
-
-@app.route('/make_sale', methods=['POST'])
+@app.route("/make_sale", methods=['POST'])
 def make_sale():
     try:
         data = request.json
         pid = data['pid']
         quantity = data['quantity']
+
         product = Product.query.get(pid)
-        if product.stock_quantity >= quantity: # is a conditional statement that checks if the current stock quantity of a product is greater than or equal to the quantity that is being requested for sale
-            product.stock_quantity -= quantity # this used for subtracting quantity from stock quantity.= تستخدم لطرح الكمية من كمية المخزون
-            sale = Sale(pid=pid, quantity=quantity)
-            db.session.add(sale)
-            db.session.commit()
-            return jsonify({"message": "Sale made successfully"}), 201
-        else:
-            return jsonify({"error": "Not enough stock"}), 400
+        if not product:
+            return jsonify({"error": "Invalid product ID"}), 400
+
+        stock = product.stock_quantity
+        if quantity <= 0 or quantity > stock:
+            return jsonify({"error": "Invalid quantity"}), 400
+
+        product.stock_quantity -= quantity
+        sale = Sale(pid=pid, quantity=quantity)
+        db.session.add(sale)
+        db.session.commit()
+        return jsonify({"message": "Sale made successfully"}), 201
+
+    except ValueError:
+        return jsonify({"error": "Invalid quantity"}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
+
+@app. route('/dashboard',methods=['GET','POST'] )
+def dashboard():
+
+    sales_per_day = db.session. query(
+    func.date(Sale.created_at). label('date'),
+    func.sum(Sale.quantity * Product.selling_price). label('sales_per_day')
+    ).join(Product).group_by(func.date(Sale.created_at)).all()
+
+    profit_per_day = db. session. query(
+    func.date(Sale.created_at). label('date'),
+    func.sum( (Sale.quantity * Product.selling_price)-
+    (Sale.quantity * Product.buying_price) ). label("profit")
+    ).join(Product).group_by(func.date(Sale.created_at)).all()
+
+    sales_data= [ {'date':str(date),"total_sales": total_sales }
+    for date, total_sales in sales_per_day]
+    
+    profit_data = [ {'date':str(date),"total_profit": total_profit }
+                   for total_profit, date in profit_per_day]
+    return jsonify({"sales_data": sales_data, "profit_data": profit_data}), 200
+    
+
+
+    
 # testing sentry  
 @app.route('/sentry_error')
 def hello_world():
