@@ -5,7 +5,6 @@ from datetime import datetime
 from flask_cors import CORS
 import sentry_sdk
 
-from database import display_profit, Total_profit, pro_for_today, display_sum_sales, display_sum_sales_today, display_sales, day_sales, pro_per_day, get_remaining_stock_per_product, insert_sales
 
 
 
